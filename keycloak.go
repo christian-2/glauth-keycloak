@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -48,6 +50,7 @@ type session struct {
 }
 
 type Group struct {
+	Id   string `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -123,16 +126,16 @@ var rootDSEAttributes = []string{
 
 var filterGroupsWithPrefix = regexp.MustCompile("^\\(&\\(objectClass=group\\)" +
 	"\\(\\|\\(sAMAccountName=(.+)\\*\\)" +
-	"\\(cn=(.+)\\*\\)\\)\\)$")
+	"\\(cn=(.*)\\*\\)\\)\\)$")
 var filterRootDSE = regexp.MustCompile("^\\(objectclass=\\*\\)$")
 var filterUsers = regexp.MustCompile("^\\(objectClass=user\\)$")
 var filterUsersWithPrefix = regexp.MustCompile("^\\(&\\(objectClass=user\\)" +
 	"\\(\\|\\(sAMAccountName=(.+)\\*\\)" +
 	"\\(sn=(.+)\\*\\)" +
-	"\\(givenName=(.+)\\*\\)" +
-	"\\(cn=(.+)\\*\\)" +
-	"\\(displayname=(.+)\\*\\)" +
-	"\\(userPrincipalName=(.+)\\*\\)\\)\\)$")
+	"\\(givenName=(.*)\\*\\)" +
+	"\\(cn=(.*)\\*\\)" +
+	"\\(displayname=(.*)\\*\\)" +
+	"\\(userPrincipalName=(.*)\\*\\)\\)\\)$")
 
 var attributes0 = []string{}
 var attributes3 = []string{
@@ -255,7 +258,7 @@ func (h keycloakHandler) Search(
 			return res, nil
 		}
 	} else if prefix, ok := checkSearchRequest(req,
-		h.baseDNUsers,
+		h.baseDNGroups,
 		ldap.ScopeWholeSubtree,
 		filterGroupsWithPrefix,
 		attributes3,
@@ -402,12 +405,16 @@ func (h *keycloakHandler) groupsSearchResult(
 			continue
 		}
 
-		a := make([]*ldap.EntryAttribute, 2)
+		a := make([]*ldap.EntryAttribute, 5)
+		o := sid(group.Name, h.config.vsphereDomain)
 		a[0] = newAttribute("objectClass", "group")
-		a[1] = newAttribute("cn", group.Name)
-
+		a[1] = newAttribute("sAMAccountName", group.Name)
+		a[2] = newAttribute("cn", group.Name)
+		a[3] = newAttribute("description", group.Name)
+		a[4] = newAttribute("objectSid", string(o))
 		logger.Debug().
 			Str("name", group.Name).
+			Str("objectSid", sidToString(o)).
 			Msg("group")
 
 		dn := fmt.Sprintf("cn=%s,%s", group.Name, h.baseDNGroups)
@@ -695,6 +702,44 @@ func newKeycloakHandlerConfig() (*keycloakHandlerConfig, error) {
 	}
 
 	return c, nil
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-sid
+func sid(id, domain string) []byte {
+	h := sha1.New()
+	d := h.Sum([]byte(domain))
+
+	h = sha1.New()
+	i := h.Sum([]byte(id))
+
+	b := make([]byte, 1+1+6+5*4)
+	b[0] = 1
+	b[1] = 5
+	binary.BigEndian.PutUint16(b[2:], 0)
+	binary.BigEndian.PutUint32(b[4:], 5)
+	binary.LittleEndian.PutUint32(b[8:], 21)
+	for j := 0; j < 3*4; j++ {
+		b[12+j] = d[j]
+	}
+	for j := 0; j < 1*4; j++ {
+		b[24+j] = i[j]
+	}
+	return b
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-sid
+func sidToString(b []byte) string {
+	r := b[0]
+	n := int(b[1])
+	ia := uint64(binary.BigEndian.Uint16(b[2:4]))<<32 +
+		uint64(binary.BigEndian.Uint32(b[4:8]))
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("S-%d-%d", r, ia))
+	for i := 0; i < n; i++ {
+		sa := binary.LittleEndian.Uint32(b[8+4*i : 8+4*i+4])
+		sb.WriteString(fmt.Sprintf("-%d", sa))
+	}
+	return sb.String()
 }
 
 func unexpected(msg string) error {

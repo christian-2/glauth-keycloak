@@ -62,6 +62,13 @@ func TestRestAPIEndpoint(t *testing.T) {
 		c.restAPIEndpoint("users"))
 }
 
+func TestSid(t *testing.T) {
+	assert.Equal(t,
+		"S-1-5-21-1634561892-1663987305-970616175-959604020",
+		sidToString(sid("4e292dae-35db-4f1a-b40b-17e8e0a3a6b7",
+			"domain.com")))
+}
+
 func TestTokenEndpoint(t *testing.T) {
 	c := keycloakHandlerConfig{
 		keycloakHostname: "localhost",
