@@ -17,8 +17,8 @@ import (
 
 	"github.com/glauth/glauth/v2/pkg/config"
 	"github.com/glauth/glauth/v2/pkg/handler"
+	"github.com/glauth/ldap"
 	resty "github.com/go-resty/resty/v2"
-	"github.com/nmcclain/ldap"
 	"github.com/rs/zerolog"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
@@ -353,6 +353,7 @@ func (h keycloakHandler) Delete(
 // Handler (HelperMaker)
 
 func (h keycloakHandler) FindUser(
+	ctx context.Context,
 	userName string,
 	searchByUPN bool,
 ) (bool, config.User, error) {
@@ -365,6 +366,7 @@ func (h keycloakHandler) FindUser(
 }
 
 func (h keycloakHandler) FindGroup(
+	ctx context.Context,
 	groupName string,
 ) (bool, config.Group, error) {
 	logger.Debug().
